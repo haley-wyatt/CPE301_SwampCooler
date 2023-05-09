@@ -25,6 +25,20 @@ LiquidCrystal lcd(7,8,9,10,11,12);
 const int sensorPin= 0; //sensor pin connected to analog pin A0
 int liquid_level;
 /* Water level detection*/
+
+/* Timers */
+volatile unsigned int  *myTCNT1   = (unsigned int *) 0x84; // Timer/Counter 1
+volatile unsigned char *myTCCR1A  = (unsigned char *) 0X80; // Timer/Counter 1 Control Register A
+volatile unsigned char *myTCCR1B  = (unsigned char *) 0X81; // Timer/Counter 1 Control Register B
+volatile unsigned char *myTCCR1C  = (unsigned char *) 0X82;// Timer/Counter 1 Control Register C
+// TIMSK - timer interrupt mask register
+// bit 0 - TOIEn - timer/counter overflow interrupt enable(1) disable(0)
+volatile unsigned char *myTIMSK1  = (unsigned char *) 0x6F;
+// TIFR - timer interrupt flag register
+// bit 0 - TOV - interrupt enable(1) disable (0)
+volatile unsigned char *myTIFR1   = (unsigned char *) 0x36;
+/* Timers */
+
 /************************************************************/
 
 /*
@@ -59,22 +73,17 @@ void setup() {
 
 void loop() {
 
-  /* LCD */
-  //lcd.setCursor(0,0); // set cursor to column 0, line 1 - line 1 is second row, 0 is first
-  //lcd.print(millis() / 1000); // print number of seconds since reset
-  /* LCD */
-
   /* Water level detection*/
   //liquid_level= analogRead(sensorPin); //arduino reads the value from the liquid level sensor
   //Serial.println(liquid_level);//prints out liquid level sensor reading
   //delay(100);//delays 100ms
   /* Water level detection*/
 
-  /* Digital Humidity & Tempertature sensor */
+  /* Digital Humidity & Temperature Sensor */
   float temperature;
   float humidity;
   if( measure_environment( &temperature, &humidity ) == true ){
-    temperature = temperature * 9.0/5 + 32; //Celsius to fahrenheit
+    temperature = temperature * 9/5 + 32; //Celsius to fahrenheit
     lcd.setCursor(0,0);
     lcd.print("T = ");
     lcd.print(temperature);
@@ -84,6 +93,6 @@ void loop() {
     lcd.print(humidity);
     lcd.print("%");
   }
-  /* Digital Humidity & Tempertature sensor */
+  /* Digital Humidity & Temperature Sensor */
 
 }
