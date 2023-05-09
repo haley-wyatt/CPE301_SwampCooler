@@ -8,9 +8,15 @@
 /******************Library Includes**************************/
 #include <dht_nonblocking.h> //Humidity and Temperature sensor
 #include <LiquidCrystal.h> // LCD Display
+#include <Wire.h> //External clock
+#include <DS3231.h> // External clock
 /************************************************************/
 
 /*************Macro defines and global variables*************/
+/* External Clock */
+DS3231 clock;
+RTCDateTime dt;
+
 /* Humidity and temperature sensor */
 #define DHT_SENSOR_TYPE DHT_TYPE_11
 static const int DHT_SENSOR_PIN = 2;
@@ -40,14 +46,26 @@ volatile unsigned char *myTIMSK1  = (unsigned char *) 0x6F;
 // bit 0 - TOV - interrupt enable(1) disable (0)
 volatile unsigned char *myTIFR1   = (unsigned char *) 0x36;
 /* Timers */
-volatile unsigned char *myEICRB = (unsigned char *) 0x6A; // external interrupt control register B pg 111
-volatile unsigned char *myEIMSK = (unsigned char *) 0x3D; // external interrupt mask register pg 111
+volatile unsigned char *myEICRB   = (unsigned char *) 0x6A; // external interrupt control register B pg 111
+volatile unsigned char *myEIMSK   = (unsigned char *) 0x3D; // external interrupt mask register pg 111
 
 /* ADC */
-volatile unsigned char *myADMUX = (unsigned char *) 0x7C; // ADC multiplexer selection register pg 281
+volatile unsigned char *myADMUX   = (unsigned char *) 0x7C; // ADC multiplexer selection register pg 281
 volatile unsigned char *myADCSRA = (unsigned char *) 0x7A; // ADC control and status register A pg 285
-volatile unsigned char *myADCSRB = (unsigned char *) 0x7B;
-volatile unsigned int *myADCDR = (unsigned char *) 0x78; // ADC data register
+volatile unsigned char *myADCSRB = (unsigned char *) 0x7B; // ADC control and status register A pg 285
+volatile unsigned int *myADCDR   = (unsigned int *) 0x78; // ADC data register
+
+// UART Pointers
+volatile unsigned char *myUCSR0A  = (unsigned char *) 0x00C0;
+volatile unsigned char *myUCSR0B  = (unsigned char *) 0x00C1;
+volatile unsigned char *myUCSR0C  = (unsigned char *) 0x00C2;
+volatile unsigned int  *myUBRR0   = (unsigned int *) 0x00C4;
+volatile unsigned char *myUDR0    = (unsigned char *) 0x00C6;
+// GPIO Pointers
+volatile unsigned char *port_b    = (unsigned char *) 0x25;// Port B Data Register
+volatile unsigned char *ddr_b     = (unsigned char *) 0x24;// Port B Data Direction Register
+
+char coolerState;
 /************************************************************/
 
 void setup() {
@@ -58,6 +76,8 @@ void setup() {
   lcd.begin(16,2); // LCD columns / rows
   /* LCD */
 
+  clock.begin(); //external clock
+  clock.setDateTime(__DATE__, __TIME__);
   /* Water level detection*/
   pinMode(sensorPin, INPUT); //the liquid level sensor will be an input to the arduino
   /* Water level detection*/
@@ -65,7 +85,14 @@ void setup() {
 }
 
 void loop() {
-
+  dt = clock.getDateTime();
+  Serial.print("Raw data: ");
+  Serial.print(dt.year);   Serial.print("-");
+  Serial.print(dt.month);  Serial.print("-");
+  Serial.print(dt.day);    Serial.print(" ");
+  Serial.print(dt.hour);   Serial.print(":");
+  Serial.print(dt.minute); Serial.print(":");
+  Serial.print(dt.second); Serial.println("");
   /* Water level detection*/
   //liquid_level= analogRead(sensorPin); //arduino reads the value from the liquid level sensor
   //Serial.println(liquid_level);//prints out liquid level sensor reading
@@ -108,6 +135,7 @@ void setup_timer_regs()
 // TIMER OVERFLOW ISR
 ISR(TIMER1_OVF_vect)
 {
+  /*
   // Stop the Timer
   *myTCCR1B &= 0b11111000; //CSn2:0 set to 0 - no clock source
   // Load the Count
@@ -120,6 +148,7 @@ ISR(TIMER1_OVF_vect)
     // XOR to toggle PB6
     *port_b ^= 0x40;
   }
+  */
 }
 
 // DHT measurement function
@@ -141,19 +170,19 @@ static bool measure_environment( float *temperature, float *humidity ){
 // ADC initialization function
 void adc_init(){
   // setup A register
-  *my_ADCSRA |= 0b10000000; // enable ADC
-  *my_ADCSRA &= 0b11011111; // disable ADC auto trigger
-  *my_ADCSRA &= 0b11110111; // disable ADC interrupt
-  *my_ADCSRA &= 0b11111000; // prescaler set to division factor of 2
+  *myADCSRA |= 0b10000000; // enable ADC
+  *myADCSRA &= 0b11011111; // disable ADC auto trigger
+  *myADCSRA &= 0b11110111; // disable ADC interrupt
+  *myADCSRA &= 0b11111000; // prescaler set to division factor of 2
   // setup B register
-  *my_ADCSRB &= 0b11110111; // mux5 0
-  *my_ADCSRB &= 0b11111000; //ADC auto trigger free running mode
+  *myADCSRB &= 0b11110111; // mux5 0
+  *myADCSRB &= 0b11111000; //ADC auto trigger free running mode
   // setup MUX register
-  *my_ADMUX &= 0b01111111; // 1.1V voltage reference
-  *my_ADMUX |= 0b01000000; // 1.1V voltage reference
-  *my_ADMUX &= 0b11011111; // ADLAR to 0 - right justified
-  //*my_ADMUX |= 0b00100000; // ADLAR to 1 - left justified
-  *my_ADMUX &= 0b11100000; // MUX4:0 to 0 to reset channel
+  *myADMUX &= 0b01111111; // 1.1V voltage reference
+  *myADMUX |= 0b01000000; // 1.1V voltage reference
+  *myADMUX &= 0b11011111; // ADLAR to 0 - right justified
+  //*myADMUX |= 0b00100000; // ADLAR to 1 - left justified
+  *myADMUX &= 0b11100000; // MUX4:0 to 0 to reset channel
 }
 
 // serial set up function
