@@ -68,16 +68,29 @@ volatile unsigned char *pin_e     = (unsigned char *) 0x2C;// Port E Input Pins 
 volatile unsigned char *port_e    = (unsigned char *) 0x2E; //Port E Data Register
 volatile unsigned char *ddr_e     = (unsigned char *) 0x2D;// Port E Data Direction Register
 
+volatile unsigned char *pin_h     = (unsigned char *) 0x100;// Port H Input Pins Register
+volatile unsigned char *port_h    = (unsigned char *) 0x102; //Port H Data Register
+volatile unsigned char *ddr_h     = (unsigned char *) 0x101;// Port H Data Direction Register
+
+volatile unsigned char *pin_g     = (unsigned char *) 0x32;// Port G Input Pins Register
+volatile unsigned char *port_g    = (unsigned char *) 0x34; //Port G Data Register
+volatile unsigned char *ddr_g     = (unsigned char *) 0x33;// Port G Data Direction Register
+
 /* Other variables */ 
 bool disabled = true;
 bool idle = false;
 /************************************************************/
 
 void setup() {
+
+  *ddr_h |= 0b00001000; // PIN H3 - Digital 6 - set as OUTPUT
+  *ddr_e |= 0b00001000; // PIN E3 - Digital 5 - set as OUTPUT
+  *ddr_g |= 0b00100000; // PIN G5 - Digital 4 - set as OUTPUT
+
   Serial.begin(9600); // sets the baud rate for data transfer in bits/second
   //U0Init(9600);
 
-  *ddr_e &= 0b11011111; // PIN E5 - Digital 3 - set as input
+  *ddr_e &= 0b11011111; // PIN E5 - Digital 3 - set as INPUT
   *port_e |= 0b00100000; // enable pull-up resistor
   *myEIMSK = 0b00100000; // enable interrupt on INT 5 - PIN E5 - Digital 3
   *myEICRB = 0b00001000; // ICS51 set to 1, ISC50 set to 0 - Falling edge samples
@@ -96,6 +109,10 @@ void setup() {
 }
 
 void loop() {
+  // turn the fan on
+  *port_h |= 0b00001000; // set PORT H3 - digital 6 - to high
+  *port_e |= 0b00001000; // set PORT E3 - Digital 5 - to high
+  *ddr_g &= 0b11011111; // set PORT G5 - Digital 4 -  to high
 
   if(!disabled){
     /* Clock 
@@ -139,6 +156,7 @@ void loop() {
 //INT 5 - PIN E5 - Digital 3
 /* If button is pressed, start a timer */
 ISR(INT5_vect){
+  Serial.println("IN5 ISR");
     // Set count
     *myTCNT1 = 0;
     // Start the timer
@@ -148,6 +166,7 @@ ISR(INT5_vect){
 
 // TIMER OVERFLOW ISR
 ISR(TIMER1_OVF_vect){
+  Serial.println("TIMER 1 OVF ISR");
   // Stop the Timer
   *myTCCR1B &= 0b11111000; //CSn2:0 set to 0 - no clock source
   timer_running = false;
@@ -176,7 +195,7 @@ static bool measure_environment(float *temperature, float *humidity){
   /* Measure once every four seconds. */
   if( millis( ) - measurement_timestamp > 3000ul ){
     if( dht_sensor.measure( temperature, humidity ) == true ){
-      measurement_timestamp = millis( );
+      measurement_timestamp = millis( );  
       return(true);
     }
   }
@@ -199,6 +218,28 @@ void adc_init(){
   *myADMUX &= 0b11011111; // ADLAR to 0 - right justified
   //*myADMUX |= 0b00100000; // ADLAR to 1 - left justified
   *myADMUX &= 0b11100000; // MUX4:0 to 0 to reset channel
+}
+
+unsigned int adc_read(unsigned char adc_channel_num){
+  // clear the channel selection bits (MUX 4:0)
+  *myADMUX  &= 0b11100000;
+  // clear the channel selection bits (MUX 5)
+  *myADCSRB &= 0b11110111;
+  // set the channel number
+  if(adc_channel_num > 7){
+    // set the channel selection bits, but remove the most significant bit (bit 3)
+    adc_channel_num -= 8;
+    // set MUX bit 5
+    *myADCSRB |= 0b00001000;
+  }
+  // set the channel selection bits
+  *myADMUX  += adc_channel_num;
+  // set bit 6 of ADCSRA to 1 to start a conversion
+  *myADCSRA |= 0x40;
+  // wait for the conversion to complete
+  while((*myADCSRA & 0x40) != 0);
+  // return the result in the ADC data register
+  return *myADCDR;
 }
 
 // serial set up function
