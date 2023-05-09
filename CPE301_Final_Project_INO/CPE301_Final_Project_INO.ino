@@ -21,16 +21,13 @@ RTCDateTime dt;
 #define DHT_SENSOR_TYPE DHT_TYPE_11
 static const int DHT_SENSOR_PIN = 2;
 DHT_nonblocking dht_sensor( DHT_SENSOR_PIN, DHT_SENSOR_TYPE );
-/* Humidity and temperature sensor */
 
 /* LCD */
 LiquidCrystal lcd(7,8,9,10,11,12);
-/* LCD */
 
 /* Water level detection*/
 const int sensorPin= 0; //sensor pin connected to analog pin A0
 int liquid_level;
-/* Water level detection*/
 
 /* Timers */
 int currentTicks = 0;
@@ -45,7 +42,8 @@ volatile unsigned char *myTIMSK1  = (unsigned char *) 0x6F;
 // TIFR - timer interrupt flag register
 // bit 0 - TOV - interrupt enable(1) disable (0)
 volatile unsigned char *myTIFR1   = (unsigned char *) 0x36;
-/* Timers */
+
+/* Interrupts */
 volatile unsigned char *myEICRB   = (unsigned char *) 0x6A; // external interrupt control register B pg 111
 volatile unsigned char *myEIMSK   = (unsigned char *) 0x3D; // external interrupt mask register pg 111
 
@@ -55,66 +53,105 @@ volatile unsigned char *myADCSRA = (unsigned char *) 0x7A; // ADC control and st
 volatile unsigned char *myADCSRB = (unsigned char *) 0x7B; // ADC control and status register A pg 285
 volatile unsigned int *myADCDR   = (unsigned int *) 0x78; // ADC data register
 
-// UART Pointers
+/* UART */
 volatile unsigned char *myUCSR0A  = (unsigned char *) 0x00C0;
 volatile unsigned char *myUCSR0B  = (unsigned char *) 0x00C1;
 volatile unsigned char *myUCSR0C  = (unsigned char *) 0x00C2;
 volatile unsigned int  *myUBRR0   = (unsigned int *) 0x00C4;
 volatile unsigned char *myUDR0    = (unsigned char *) 0x00C6;
-// GPIO Pointers
+
+/* GPIO */
 volatile unsigned char *port_b    = (unsigned char *) 0x25;// Port B Data Register
 volatile unsigned char *ddr_b     = (unsigned char *) 0x24;// Port B Data Direction Register
 
-char coolerState;
+volatile unsigned char *pin_e     = (unsigned char *) 0x2C;// Port E Input Pins Register
+volatile unsigned char *port_e    = (unsigned char *) 0x2E; //Port E Data Register
+volatile unsigned char *ddr_e     = (unsigned char *) 0x2D;// Port E Data Direction Register
+
+/* Other variables */ 
+bool disabled = true;
+bool idle = false;
 /************************************************************/
 
 void setup() {
   Serial.begin(9600); // sets the baud rate for data transfer in bits/second
   //U0Init(9600);
-  setup_timer_regs(); // setup timer registers
-  /* LCD */
-  lcd.begin(16,2); // LCD columns / rows
-  /* LCD */
 
-  clock.begin(); //external clock
+  *ddr_e &= 0b11011111; // PIN E5 - Digital 3 - set as input
+  *port_e |= 0b00100000; // enable pull-up resistor
+  *myEIMSK = 0b00100000; // enable interrupt on INT 5 - PIN E5 - Digital 3
+  *myEICRB = 0b00001000; // ICS51 set to 1, ISC50 set to 0 - Falling edge samples
+  
+  setup_timer_regs(); // setup timer registers
+
+  lcd.begin(16,2); // set-up LCD with 16 columns, 2 rows
+
+   // set-up external clock
+  clock.begin();
   clock.setDateTime(__DATE__, __TIME__);
+
   /* Water level detection*/
   pinMode(sensorPin, INPUT); //the liquid level sensor will be an input to the arduino
-  /* Water level detection*/
 
 }
 
 void loop() {
-  dt = clock.getDateTime();
-  Serial.print("Raw data: ");
-  Serial.print(dt.year);   Serial.print("-");
-  Serial.print(dt.month);  Serial.print("-");
-  Serial.print(dt.day);    Serial.print(" ");
-  Serial.print(dt.hour);   Serial.print(":");
-  Serial.print(dt.minute); Serial.print(":");
-  Serial.print(dt.second); Serial.println("");
-  /* Water level detection*/
-  //liquid_level= analogRead(sensorPin); //arduino reads the value from the liquid level sensor
-  //Serial.println(liquid_level);//prints out liquid level sensor reading
-  //delay(100);//delays 100ms
-  /* Water level detection*/
 
-  /* Digital Humidity & Temperature Sensor */
-  float temperature;
-  float humidity;
-  if( measure_environment( &temperature, &humidity ) == true ){
-    temperature = temperature * 9/5 + 32; //Celsius to fahrenheit
-    lcd.setCursor(0,0);
-    lcd.print("T = ");
-    lcd.print(temperature);
-    lcd.print(" deg. F");
-    lcd.setCursor(0,1);
-    lcd.print("H = ");
-    lcd.print(humidity);
-    lcd.print("%");
+  if(!disabled){
+    /* Clock 
+    dt = clock.getDateTime();
+    Serial.print("Time: ");
+    Serial.print(dt.year);   Serial.print("-");
+    Serial.print(dt.month);  Serial.print("-");
+    Serial.print(dt.day);    Serial.print(" ");
+    Serial.print(dt.hour);   Serial.print(":");
+    Serial.print(dt.minute); Serial.print(":");
+    Serial.print(dt.second); Serial.println("");
+    delay(1000);
+    */
+
+    /* Water level detection*/
+    //liquid_level= analogRead(sensorPin); //arduino reads the value from the liquid level sensor
+    //Serial.println(liquid_level);//prints out liquid level sensor reading
+    //delay(100);//delays 100ms
+
+    /* Digital Humidity & Temperature Sensor */
+    float temperature;
+    float humidity;
+    if( measure_environment( &temperature, &humidity ) == true ){
+      temperature = temperature * 9/5 + 32; //Celsius to fahrenheit
+      lcd.setCursor(0,0);
+      lcd.print("T = ");
+      lcd.print(temperature);
+      lcd.print(" deg. F");
+      lcd.setCursor(0,1);
+      lcd.print("H = ");
+      lcd.print(humidity);
+      lcd.print("%");
+    }
   }
-  /* Digital Humidity & Temperature Sensor */
 
+  if(disabled){
+    lcd.clear();
+  }
+}
+
+//INT 5 - PIN E5 - Digital 3
+/* If button is pressed, start a timer */
+ISR(INT5_vect){
+    // Set count
+    *myTCNT1 = 0;
+    // Start the timer
+    *myTCCR1B |=   0b00000001; // no prescaler
+    timer_running = true;
+}
+
+// TIMER OVERFLOW ISR
+ISR(TIMER1_OVF_vect){
+  // Stop the Timer
+  *myTCCR1B &= 0b11111000; //CSn2:0 set to 0 - no clock source
+  timer_running = false;
+  disabled = !disabled;
 }
 
 // Timer setup function
@@ -124,35 +161,14 @@ void setup_timer_regs()
   *myTCCR1A= 0x00;
   *myTCCR1B= 0X00;
   *myTCCR1C= 0x00;
-  
   // reset the TOV flag
   *myTIFR1 |= 0x01; //0b 0000 0001
-  
   // enable the TOV interrupt
   *myTIMSK1 |= 0b00000001;
 }
 
-// TIMER OVERFLOW ISR
-ISR(TIMER1_OVF_vect)
-{
-  /*
-  // Stop the Timer
-  *myTCCR1B &= 0b11111000; //CSn2:0 set to 0 - no clock source
-  // Load the Count
-  *myTCNT1 =  (unsigned int) (65535 -  (unsigned long) (currentTicks));
-  // Start the Timer
-  *myTCCR1B |=   0b00000001; // no prescaler
-  // if it's not the STOP amount
-  if(currentTicks != 65535)
-  {
-    // XOR to toggle PB6
-    *port_b ^= 0x40;
-  }
-  */
-}
-
 // DHT measurement function
-static bool measure_environment( float *temperature, float *humidity ){
+static bool measure_environment(float *temperature, float *humidity){
   /* Poll for a measurement, keeping the state machine alive.  Returns
    true if a measurement is available.
   */
@@ -161,10 +177,10 @@ static bool measure_environment( float *temperature, float *humidity ){
   if( millis( ) - measurement_timestamp > 3000ul ){
     if( dht_sensor.measure( temperature, humidity ) == true ){
       measurement_timestamp = millis( );
-      return( true );
+      return(true);
     }
   }
-  return( false );
+  return(false);
 }
 
 // ADC initialization function
