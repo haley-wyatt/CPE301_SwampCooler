@@ -1,2 +1,5 @@
 # CPE301_SwampCooler
-The repository for my CPE301 final project Spring'23
+This is the repository for my CPE301 final project Spring'23
+
+Team Name: N/A
+Team Members: Wyatt Haley
