@@ -55,7 +55,7 @@ volatile unsigned char *myEIMSK   = (unsigned char *) 0x3D; // external interrup
 volatile unsigned char *myADMUX   = (unsigned char *) 0x7C; // ADC multiplexer selection register
 volatile unsigned char *myADCSRA  = (unsigned char *) 0x7A; // ADC control and status register A
 volatile unsigned char *myADCSRB  = (unsigned char *) 0x7B; // ADC control and status register A
-volatile unsigned int *myADCDR    = (unsigned int *)  0x78; // ADC data register
+volatile unsigned int  *myADCDR   = (unsigned int *)  0x78; // ADC data register
 
 /* UART */
 volatile unsigned char *myUCSR0A  = (unsigned char *) 0x00C0;
@@ -94,7 +94,11 @@ volatile unsigned char *ddr_g     = (unsigned char *) 0x33;// Port G Data Direct
 #define TBE 0x20
 #define liquid_min 150
 #define liquid_max 400
+#define temp_threshold 70
+float current_temp = 0;
 char state = 'd';
+bool off_toggle = true;
+bool fan_toggle = false;
 /************************************************************/
 
 void setup() {
@@ -125,46 +129,41 @@ void setup() {
 void loop() {
   switch(state){
     case 'd':
-      //all led off
       display_disabled();
+      led_off();
       turn_off_fan();
-      *port_a &= 0b11101010; // PORT A0/2/4 - Digital 22/24/26 LOW
       break;
     case 'i':
-      //green led
       display_dht();
+      led_green();
       turn_off_fan();
-      *port_a &= 0b11111110; // PORT A0 - DIGITAL 22 - LOW
-      *port_a |= 0b00000100; // PORT A2 - DIGITAL 24 - HIGH
-      *port_a &= 0b11101111; // PORT A4 - DIGITAL 26 - LOW
+      fan_toggle = false;
+      if(current_temp > temp_threshold){
+        state = 'r';
+      }
       break;
     case 'r':
-      //blue led
       display_dht();
+      led_blue();
+      if(fan_toggle == false){
+        fan_toggle = true;
+        print_time();
+      }
       turn_on_fan();
-      print_time();
-      *port_a |= 0b00000001; // PORT A0 - Digital 22 - HIGH
-      *port_a &= 0b11111011; // PORT A2 - DIGITAL 24 - LOW
-      *port_a &= 0b11101111; // PORT A4 - DIGITAL 26 - LOW
       break;
     case 'e':
-      //red led
-      *port_a &= 0b11111110; // PORT A0 - DIGITAL 22 - LOW
-      *port_a &= 0b11111011; // PORT A2 - DIGITAL 24 - LOW
-      *port_a |= 0b00010000; // PORT A4 - Digital 26 - HIGH
       display_error();
+      led_red();
       turn_off_fan();
       break;
   }
 
   liquid_level = adc_read(0);
-  //Serial.println(liquid_level);
   delay(100);
   
   if( (liquid_level < liquid_min) || (liquid_level > liquid_max) ){
     state = 'e';
   }
-  Serial.println(state);
 }
 
 void print_time(){
@@ -197,6 +196,7 @@ void display_dht(){
   float humidity;
   if( measure_environment( &temperature, &humidity ) == true ){
       temperature = temperature * 9/5 + 32;
+      current_temp = temperature;
       lcd.setCursor(0,0);
       lcd.print("T = ");
       lcd.print(temperature);
@@ -206,6 +206,28 @@ void display_dht(){
       lcd.print(humidity);
       lcd.print("%");
     }
+}
+
+void led_off(){
+  *port_a &= 0b11101010; // PORT A0/2/4 - Digital 22/24/26 LOW
+}
+
+void led_green(){
+  *port_a &= 0b11111110; // PORT A0 - DIGITAL 22 - LOW
+  *port_a |= 0b00000100; // PORT A2 - DIGITAL 24 - HIGH
+  *port_a &= 0b11101111; // PORT A4 - DIGITAL 26 - LOW
+}
+
+void led_blue(){
+  *port_a |= 0b00000001; // PORT A0 - Digital 22 - HIGH
+  *port_a &= 0b11111011; // PORT A2 - DIGITAL 24 - LOW
+  *port_a &= 0b11101111; // PORT A4 - DIGITAL 26 - LOW
+}
+
+void led_red(){
+  *port_a &= 0b11111110; // PORT A0 - DIGITAL 22 - LOW
+  *port_a &= 0b11111011; // PORT A2 - DIGITAL 24 - LOW
+  *port_a |= 0b00010000; // PORT A4 - Digital 26 - HIGH
 }
 
 void turn_on_fan(){
@@ -220,10 +242,7 @@ void turn_off_fan(){
   *ddr_g &= 0b11011111; // set PORT G5 - Digital 4 -  to low
 }
 
-//INT 5 - PIN E5 - Digital 3
-/* If button is pressed, start a timer */
 ISR(INT5_vect){
-  Serial.println("INT 5 ISR");
   // Set count to 0
   *myTCNT1 = 0;
   // Start the timer
@@ -232,7 +251,6 @@ ISR(INT5_vect){
 }
 
 ISR(INT2_vect){
-  Serial.println("INT 2 ISR");
   // Set count to 0
   *myTCNT3 = 0;
   // Start the timer
@@ -241,20 +259,21 @@ ISR(INT2_vect){
 
 // TIMER OVERFLOW ISR
 ISR(TIMER1_OVF_vect){
-  Serial.println("OVF");
   // Stop the Timer
   *myTCCR1B &= 0b11111000; //CSn2:0 set to 0 - no clock source
   timer1_running = false;
+
   //switch between disabled and idle states
-  if(state == 'd'){
-    state = 'i';
-  }
-  else if(state == 'i'){
+  if(off_toggle == false){
+    off_toggle = true;
     state = 'd';
+  }
+  else if (off_toggle == true){
+    off_toggle = false;
+    state = 'i';
   }
 }
 ISR(TIMER3_OVF_vect){
-  Serial.println("T3 OVF");
   // Stop the Timer
   *myTCCR3B &= 0b11111000;
     // change state to idle
