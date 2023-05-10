@@ -27,7 +27,7 @@ LiquidCrystal lcd(7,8,9,10,11,12);
 
 /* Water level detection*/
 const int sensorPin= 0; //sensor pin connected to analog pin A0
-int liquid_level;
+int liquid_level = 0;
 
 /* Timers */
 int currentTicks = 0;
@@ -76,67 +76,93 @@ volatile unsigned char *pin_g     = (unsigned char *) 0x32;// Port G Input Pins 
 volatile unsigned char *port_g    = (unsigned char *) 0x34; //Port G Data Register
 volatile unsigned char *ddr_g     = (unsigned char *) 0x33;// Port G Data Direction Register
 
-/* Other variables */ 
-bool disabled = true;
-bool idle = false;
+/* Other variables */
+#define RDA 0x80
+#define TBE 0x20
+#define liquid_min = 50;
+#define liquid_max = 400;
+char state = 'd';
 /************************************************************/
 
 void setup() {
-
+  //set-up serial comms
+  U0Init(9600);
+  //set-up adc
+  adc_init();
+  //set-up timers
+  setup_timer_regs();
+  //set-up LCD display
+  lcd.begin(16,2); // set-up LCD with 16 columns, 2 rows
+  // set-up external clock
+  clock.begin();
+  clock.setDateTime(__DATE__, __TIME__);
+  //set up GPIO
   *ddr_h |= 0b00001000; // PIN H3 - Digital 6 - set as OUTPUT
   *ddr_e |= 0b00001000; // PIN E3 - Digital 5 - set as OUTPUT
   *ddr_g |= 0b00100000; // PIN G5 - Digital 4 - set as OUTPUT
-
-  Serial.begin(9600); // sets the baud rate for data transfer in bits/second
-  //U0Init(9600);
-
   *ddr_e &= 0b11011111; // PIN E5 - Digital 3 - set as INPUT
-  *port_e |= 0b00100000; // enable pull-up resistor
+  *port_e |= 0b00100000;//PIN E5 - Digital 3 enable pull-up resistor
   *myEIMSK = 0b00100000; // enable interrupt on INT 5 - PIN E5 - Digital 3
   *myEICRB = 0b00001000; // ICS51 set to 1, ISC50 set to 0 - Falling edge samples
-  
-  setup_timer_regs(); // setup timer registers
-
-  lcd.begin(16,2); // set-up LCD with 16 columns, 2 rows
-
-   // set-up external clock
-  clock.begin();
-  clock.setDateTime(__DATE__, __TIME__);
-
-  /* Water level detection*/
-  pinMode(sensorPin, INPUT); //the liquid level sensor will be an input to the arduino
-
 }
 
 void loop() {
-  // turn the fan on
-  *port_h |= 0b00001000; // set PORT H3 - digital 6 - to high
-  *port_e |= 0b00001000; // set PORT E3 - Digital 5 - to high
-  *ddr_g &= 0b11011111; // set PORT G5 - Digital 4 -  to high
-
-  if(!disabled){
-    /* Clock 
-    dt = clock.getDateTime();
-    Serial.print("Time: ");
-    Serial.print(dt.year);   Serial.print("-");
-    Serial.print(dt.month);  Serial.print("-");
-    Serial.print(dt.day);    Serial.print(" ");
-    Serial.print(dt.hour);   Serial.print(":");
-    Serial.print(dt.minute); Serial.print(":");
-    Serial.print(dt.second); Serial.println("");
-    delay(1000);
-    */
-
-    /* Water level detection*/
-    //liquid_level= analogRead(sensorPin); //arduino reads the value from the liquid level sensor
-    //Serial.println(liquid_level);//prints out liquid level sensor reading
-    //delay(100);//delays 100ms
-
-    /* Digital Humidity & Temperature Sensor */
-    float temperature;
-    float humidity;
-    if( measure_environment( &temperature, &humidity ) == true ){
-      temperature = temperature * 9/5 + 32; //Celsius to fahrenheit
+  switch(state){
+    case 'd':
+      //all led off
+      display_disabled();
+      turn_off_fan();
+      break;
+    case 'i':
+      //green led
+      display_dht();
+      turn_off_fan();
+      break;
+    case 'r':
+      //blue led
+      display_dht();
+      turn_on_fan();
+      break;
+    case 'e':
+      //red led
+      display_error();
+      turn_off_fan();
+      break;
+  }
+  liquid_level = adc_read(0);
+  delay(100);
+  if( (liquid_level < liquid_min) || (liquid_level > liquid_max) ){
+    state = 'e';
+  }
+}
+void print_time(){
+  dt = clock.getDateTime();
+  Serial.print("Time: ");
+  Serial.print(dt.year);   Serial.print("-");
+  Serial.print(dt.month);  Serial.print("-");
+  Serial.print(dt.day);    Serial.print(" ");
+  Serial.print(dt.hour);   Serial.print(":");
+  Serial.print(dt.minute); Serial.print(":");
+  Serial.print(dt.second); Serial.println("");
+  //delay(1000);
+}
+void display_error(){
+  lcd.setCursor(0,0);
+  lcd.print("ERROR           ");
+  lcd.setCursor(0, 2);
+  lcd.print("                ");
+}
+void display_disabled(){
+  lcd.setCursor(0,0);
+  lcd.print("DISABLED        ");
+  lcd.setCursor(0, 2);
+  lcd.print("                ");
+}
+void display_dht(){
+  float temperature;
+  float humidity;
+  if( measure_environment( &temperature, &humidity ) == true ){
+      temperature = temperature * 9/5 + 32;
       lcd.setCursor(0,0);
       lcd.print("T = ");
       lcd.print(temperature);
@@ -146,18 +172,17 @@ void loop() {
       lcd.print(humidity);
       lcd.print("%");
     }
-  }
-
-  if(disabled){
-    lcd.clear();
-  }
 }
 
+void turn_on_fan(){
+  *port_h |= 0b00001000; // set PORT H3 - digital 6 - to high
+  *port_e |= 0b00001000; // set PORT E3 - Digital 5 - to high
+  *ddr_g &= 0b11011111; // set PORT G5 - Digital 4 -  to high
+}
 //INT 5 - PIN E5 - Digital 3
 /* If button is pressed, start a timer */
 ISR(INT5_vect){
-  Serial.println("IN5 ISR");
-    // Set count
+    // Set count to 0
     *myTCNT1 = 0;
     // Start the timer
     *myTCCR1B |=   0b00000001; // no prescaler
@@ -166,16 +191,20 @@ ISR(INT5_vect){
 
 // TIMER OVERFLOW ISR
 ISR(TIMER1_OVF_vect){
-  Serial.println("TIMER 1 OVF ISR");
   // Stop the Timer
   *myTCCR1B &= 0b11111000; //CSn2:0 set to 0 - no clock source
   timer_running = false;
-  disabled = !disabled;
+  //switch between disabled and idle states
+  if(state == 'd'){
+    state = 'i';
+  }
+  else if(state == 'i'){
+    state = 'd';
+  }
 }
 
 // Timer setup function
-void setup_timer_regs()
-{
+void setup_timer_regs(){
   // setup the timer control registers
   *myTCCR1A= 0x00;
   *myTCCR1B= 0X00;
@@ -251,4 +280,13 @@ void U0Init(int U0baud){
  *myUCSR0B = 0x18; //0b 0001 1000 - Enable USART rx and tx
  *myUCSR0C = 0x06; //0b 0000 0110 - UCSZn2=0 UCSZn1=1 - 8bit char size for rx/tx
  *myUBRR0  = tbaud;
+}
+
+unsigned char U0getchar(){
+  return *myUDR0;
+}
+
+void U0putchar(unsigned char U0pdata){
+  while((*myUCSR0A & TBE)==0);
+  *myUDR0 = U0pdata;
 }
