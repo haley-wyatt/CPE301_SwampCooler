@@ -31,27 +31,31 @@ int liquid_level = 0;
 
 /* Timers */
 int currentTicks = 0;
-bool timer_running = 0;
-volatile unsigned int  *myTCNT1   = (unsigned int *) 0x84; // Timer/Counter 1
+bool timer1_running = 0;
+volatile unsigned int  *myTCNT1   = (unsigned int *)  0x84;  // Timer/Counter 1
 volatile unsigned char *myTCCR1A  = (unsigned char *) 0X80; // Timer/Counter 1 Control Register A
 volatile unsigned char *myTCCR1B  = (unsigned char *) 0X81; // Timer/Counter 1 Control Register B
-volatile unsigned char *myTCCR1C  = (unsigned char *) 0X82;// Timer/Counter 1 Control Register C
-// TIMSK - timer interrupt mask register
-// bit 0 - TOIEn - timer/counter overflow interrupt enable(1) disable(0)
-volatile unsigned char *myTIMSK1  = (unsigned char *) 0x6F;
-// TIFR - timer interrupt flag register
-// bit 0 - TOV - interrupt enable(1) disable (0)
-volatile unsigned char *myTIFR1   = (unsigned char *) 0x36;
+volatile unsigned char *myTCCR1C  = (unsigned char *) 0X82; // Timer/Counter 1 Control Register C
+volatile unsigned char *myTIMSK1  = (unsigned char *) 0x6F; // Timer/Counter 1 Interrupt Mask Register
+
+volatile unsigned int  *myTCNT3   = (unsigned int*)  0x94; // Timer/Counter 3
+volatile unsigned char *myTCCR3A  = (unsigned char*) 0x90;
+volatile unsigned char *myTCCR3B  = (unsigned char*) 0x91;
+volatile unsigned char *myTCCR3C  = (unsigned char*) 0x92;
+volatile unsigned char *myTIMSK3  = (unsigned char*) 0x71;
+
+volatile unsigned char *myTIFR1   = (unsigned char *) 0x36; // TIFR1 - timer 1 interrupt flag register
+volatile unsigned char *myTIFR3   = (unsigned char *) 0x38; // TIFR3 - timer 3 interrupt flag register
 
 /* Interrupts */
-volatile unsigned char *myEICRB   = (unsigned char *) 0x6A; // external interrupt control register B pg 111
-volatile unsigned char *myEIMSK   = (unsigned char *) 0x3D; // external interrupt mask register pg 111
+volatile unsigned char *myEICRB   = (unsigned char *) 0x6A; // external interrupt control register B
+volatile unsigned char *myEIMSK   = (unsigned char *) 0x3D; // external interrupt mask register
 
 /* ADC */
-volatile unsigned char *myADMUX   = (unsigned char *) 0x7C; // ADC multiplexer selection register pg 281
-volatile unsigned char *myADCSRA = (unsigned char *) 0x7A; // ADC control and status register A pg 285
-volatile unsigned char *myADCSRB = (unsigned char *) 0x7B; // ADC control and status register A pg 285
-volatile unsigned int *myADCDR   = (unsigned int *) 0x78; // ADC data register
+volatile unsigned char *myADMUX   = (unsigned char *) 0x7C; // ADC multiplexer selection register
+volatile unsigned char *myADCSRA  = (unsigned char *) 0x7A; // ADC control and status register A
+volatile unsigned char *myADCSRB  = (unsigned char *) 0x7B; // ADC control and status register A
+volatile unsigned int *myADCDR    = (unsigned int *)  0x78; // ADC data register
 
 /* UART */
 volatile unsigned char *myUCSR0A  = (unsigned char *) 0x00C0;
@@ -64,24 +68,32 @@ volatile unsigned char *myUDR0    = (unsigned char *) 0x00C6;
 volatile unsigned char *port_b    = (unsigned char *) 0x25;// Port B Data Register
 volatile unsigned char *ddr_b     = (unsigned char *) 0x24;// Port B Data Direction Register
 
+volatile unsigned char *pin_d     = (unsigned char *) 0x29;// Port D Input Pins Address
+volatile unsigned char *port_d    = (unsigned char *) 0x2B;// Port D Data Register
+volatile unsigned char *ddr_d     = (unsigned char *) 0x2A;// Port D Data Direction Register
+
 volatile unsigned char *pin_e     = (unsigned char *) 0x2C;// Port E Input Pins Register
-volatile unsigned char *port_e    = (unsigned char *) 0x2E; //Port E Data Register
+volatile unsigned char *port_e    = (unsigned char *) 0x2E;// Port E Data Register
 volatile unsigned char *ddr_e     = (unsigned char *) 0x2D;// Port E Data Direction Register
 
 volatile unsigned char *pin_h     = (unsigned char *) 0x100;// Port H Input Pins Register
-volatile unsigned char *port_h    = (unsigned char *) 0x102; //Port H Data Register
+volatile unsigned char *port_h    = (unsigned char *) 0x102;// Port H Data Register
 volatile unsigned char *ddr_h     = (unsigned char *) 0x101;// Port H Data Direction Register
 
 volatile unsigned char *pin_g     = (unsigned char *) 0x32;// Port G Input Pins Register
-volatile unsigned char *port_g    = (unsigned char *) 0x34; //Port G Data Register
+volatile unsigned char *port_g    = (unsigned char *) 0x34;// Port G Data Register
 volatile unsigned char *ddr_g     = (unsigned char *) 0x33;// Port G Data Direction Register
 
 /* Other variables */
 #define RDA 0x80
 #define TBE 0x20
-#define liquid_min = 50;
-#define liquid_max = 400;
+#define liquid_min 150
+#define liquid_max 400
 char state = 'd';
+
+#define BLUE 22
+#define GREEN 24
+#define RED 26
 /************************************************************/
 
 void setup() {
@@ -100,10 +112,16 @@ void setup() {
   *ddr_h |= 0b00001000; // PIN H3 - Digital 6 - set as OUTPUT
   *ddr_e |= 0b00001000; // PIN E3 - Digital 5 - set as OUTPUT
   *ddr_g |= 0b00100000; // PIN G5 - Digital 4 - set as OUTPUT
+  *ddr_d &= 0b11111011; // PIN D2 - Digital 19 - set as INPUT
+  *port_d |= 0b00000100; //PIN D2 - Digital 19 - enable pull-up resistor
   *ddr_e &= 0b11011111; // PIN E5 - Digital 3 - set as INPUT
-  *port_e |= 0b00100000;//PIN E5 - Digital 3 enable pull-up resistor
-  *myEIMSK = 0b00100000; // enable interrupt on INT 5 - PIN E5 - Digital 3
+  *port_e |= 0b00100000;// PIN E5 - Digital 3 - enable pull-up resistor
+  *myEIMSK = 0b00100100; // enable interrupt on INT 5 and 2 - PINS E5 AND D2
   *myEICRB = 0b00001000; // ICS51 set to 1, ISC50 set to 0 - Falling edge samples
+
+  pinMode(RED, OUTPUT);
+  pinMode(GREEN, OUTPUT);
+  pinMode(BLUE, OUTPUT);
 }
 
 void loop() {
@@ -112,52 +130,71 @@ void loop() {
       //all led off
       display_disabled();
       turn_off_fan();
+      digitalWrite(RED, LOW);
+      digitalWrite(BLUE, LOW);
+      digitalWrite(GREEN, LOW);
       break;
     case 'i':
       //green led
       display_dht();
       turn_off_fan();
+      digitalWrite(RED, LOW);
+      digitalWrite(BLUE, LOW);
+      digitalWrite(GREEN, HIGH);
       break;
     case 'r':
       //blue led
       display_dht();
       turn_on_fan();
+      print_time();
+      digitalWrite(RED, LOW);
+      digitalWrite(BLUE, HIGH);
+      digitalWrite(GREEN, LOW);
       break;
     case 'e':
       //red led
+      digitalWrite(RED, HIGH);
+      digitalWrite(BLUE, LOW);
+      digitalWrite(GREEN, LOW);
       display_error();
       turn_off_fan();
       break;
   }
   liquid_level = adc_read(0);
+  //Serial.println(liquid_level);
   delay(100);
+  
   if( (liquid_level < liquid_min) || (liquid_level > liquid_max) ){
     state = 'e';
   }
+  Serial.println(state);
 }
+
 void print_time(){
   dt = clock.getDateTime();
-  Serial.print("Time: ");
+  Serial.print("Fan started: ");
   Serial.print(dt.year);   Serial.print("-");
   Serial.print(dt.month);  Serial.print("-");
   Serial.print(dt.day);    Serial.print(" ");
   Serial.print(dt.hour);   Serial.print(":");
   Serial.print(dt.minute); Serial.print(":");
   Serial.print(dt.second); Serial.println("");
-  //delay(1000);
 }
+
 void display_error(){
   lcd.setCursor(0,0);
   lcd.print("ERROR           ");
   lcd.setCursor(0, 2);
   lcd.print("                ");
 }
+
 void display_disabled(){
   lcd.setCursor(0,0);
   lcd.print("DISABLED        ");
   lcd.setCursor(0, 2);
   lcd.print("                ");
 }
+
 void display_dht(){
   float temperature;
   float humidity;
@@ -175,31 +212,57 @@ void display_dht(){
 }
 
 void turn_on_fan(){
-  *port_h |= 0b00001000; // set PORT H3 - digital 6 - to high
+  *port_h |= 0b00001000; // set PORT H3 - Digital 6 - to high
   *port_e |= 0b00001000; // set PORT E3 - Digital 5 - to high
-  *ddr_g &= 0b11011111; // set PORT G5 - Digital 4 -  to high
+  *ddr_g &= 0b11011111; // set PORT G5 - Digital 4 -  to low
 }
+
+void turn_off_fan(){
+  *port_h &= 0b11110111; // set PORT H3 - Digital 6 - to low
+  *port_e &= 0b11110111; // set PORT E3 - Digital 5 - to low
+  *ddr_g &= 0b11011111; // set PORT G5 - Digital 4 -  to low
+}
+
 //INT 5 - PIN E5 - Digital 3
 /* If button is pressed, start a timer */
 ISR(INT5_vect){
-    // Set count to 0
-    *myTCNT1 = 0;
-    // Start the timer
-    *myTCCR1B |=   0b00000001; // no prescaler
-    timer_running = true;
+  Serial.println("INT 5 ISR");
+  // Set count to 0
+  *myTCNT1 = 0;
+  // Start the timer
+  *myTCCR1B |= 0b00000001; // no prescaler
+  timer1_running = true;
+}
+
+ISR(INT2_vect){
+  Serial.println("INT 2 ISR");
+  // Set count to 0
+  *myTCNT3 = 0;
+  // Start the timer
+  *myTCCR3B |= 0b00000001; // no prescaler
 }
 
 // TIMER OVERFLOW ISR
 ISR(TIMER1_OVF_vect){
+  Serial.println("OVF");
   // Stop the Timer
   *myTCCR1B &= 0b11111000; //CSn2:0 set to 0 - no clock source
-  timer_running = false;
+  timer1_running = false;
   //switch between disabled and idle states
   if(state == 'd'){
     state = 'i';
   }
   else if(state == 'i'){
     state = 'd';
+  }
+}
+ISR(TIMER3_OVF_vect){
+  Serial.println("T3 OVF");
+  // Stop the Timer
+  *myTCCR3B &= 0b11111000;
+    // change state to idle
+  if(state != 'i'){
+    state = 'i';
   }
 }
 
@@ -209,10 +272,15 @@ void setup_timer_regs(){
   *myTCCR1A= 0x00;
   *myTCCR1B= 0X00;
   *myTCCR1C= 0x00;
+  *myTCCR3A= 0x00;
+  *myTCCR3B= 0X00;
+  *myTCCR3C= 0x00;
   // reset the TOV flag
   *myTIFR1 |= 0x01; //0b 0000 0001
+  *myTIFR3 |= 0x01;
   // enable the TOV interrupt
   *myTIMSK1 |= 0b00000001;
+  *myTIMSK3 |= 0b00000001;
 }
 
 // DHT measurement function
@@ -249,6 +317,7 @@ void adc_init(){
   *myADMUX &= 0b11100000; // MUX4:0 to 0 to reset channel
 }
 
+//adc read function
 unsigned int adc_read(unsigned char adc_channel_num){
   // clear the channel selection bits (MUX 4:0)
   *myADMUX  &= 0b11100000;
@@ -282,10 +351,12 @@ void U0Init(int U0baud){
  *myUBRR0  = tbaud;
 }
 
+//uart read function
 unsigned char U0getchar(){
   return *myUDR0;
 }
 
+//uart print function
 void U0putchar(unsigned char U0pdata){
   while((*myUCSR0A & TBE)==0);
   *myUDR0 = U0pdata;
