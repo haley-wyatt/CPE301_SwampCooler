@@ -65,6 +65,11 @@ volatile unsigned int  *myUBRR0   = (unsigned int *) 0x00C4;
 volatile unsigned char *myUDR0    = (unsigned char *) 0x00C6;
 
 /* GPIO */
+volatile unsigned char *pin_a     = (unsigned char *) 0x20;// Port A Input Pins Address
+volatile unsigned char *port_a    = (unsigned char *) 0x22;// Port A Data Register
+volatile unsigned char *ddr_a     = (unsigned char *) 0x21;// Port A Data Direction Register
+
+volatile unsigned char *pin_b     = (unsigned char *) 0x23;// Port B Input Pins Address
 volatile unsigned char *port_b    = (unsigned char *) 0x25;// Port B Data Register
 volatile unsigned char *ddr_b     = (unsigned char *) 0x24;// Port B Data Direction Register
 
@@ -90,10 +95,6 @@ volatile unsigned char *ddr_g     = (unsigned char *) 0x33;// Port G Data Direct
 #define liquid_min 150
 #define liquid_max 400
 char state = 'd';
-
-#define BLUE 22
-#define GREEN 24
-#define RED 26
 /************************************************************/
 
 void setup() {
@@ -112,16 +113,13 @@ void setup() {
   *ddr_h |= 0b00001000; // PIN H3 - Digital 6 - set as OUTPUT
   *ddr_e |= 0b00001000; // PIN E3 - Digital 5 - set as OUTPUT
   *ddr_g |= 0b00100000; // PIN G5 - Digital 4 - set as OUTPUT
+  *ddr_a &= 0b11101010; // PIN A0/2/4 - Digital 22/24/26 - set as INPUT
   *ddr_d &= 0b11111011; // PIN D2 - Digital 19 - set as INPUT
   *port_d |= 0b00000100; //PIN D2 - Digital 19 - enable pull-up resistor
   *ddr_e &= 0b11011111; // PIN E5 - Digital 3 - set as INPUT
   *port_e |= 0b00100000;// PIN E5 - Digital 3 - enable pull-up resistor
   *myEIMSK = 0b00100100; // enable interrupt on INT 5 and 2 - PINS E5 AND D2
   *myEICRB = 0b00001000; // ICS51 set to 1, ISC50 set to 0 - Falling edge samples
-
-  pinMode(RED, OUTPUT);
-  pinMode(GREEN, OUTPUT);
-  pinMode(BLUE, OUTPUT);
 }
 
 void loop() {
@@ -130,36 +128,35 @@ void loop() {
       //all led off
       display_disabled();
       turn_off_fan();
-      digitalWrite(RED, LOW);
-      digitalWrite(BLUE, LOW);
-      digitalWrite(GREEN, LOW);
+      *port_a &= 0b11101010; // PORT A0/2/4 - Digital 22/24/26 LOW
       break;
     case 'i':
       //green led
       display_dht();
       turn_off_fan();
-      digitalWrite(RED, LOW);
-      digitalWrite(BLUE, LOW);
-      digitalWrite(GREEN, HIGH);
+      *port_a &= 0b11111110; // PORT A0 - DIGITAL 22 - LOW
+      *port_a |= 0b00000100; // PORT A2 - DIGITAL 24 - HIGH
+      *port_a &= 0b11101111; // PORT A4 - DIGITAL 26 - LOW
       break;
     case 'r':
       //blue led
       display_dht();
       turn_on_fan();
       print_time();
-      digitalWrite(RED, LOW);
-      digitalWrite(BLUE, HIGH);
-      digitalWrite(GREEN, LOW);
+      *port_a |= 0b00000001; // PORT A0 - Digital 22 - HIGH
+      *port_a &= 0b11111011; // PORT A2 - DIGITAL 24 - LOW
+      *port_a &= 0b11101111; // PORT A4 - DIGITAL 26 - LOW
       break;
     case 'e':
       //red led
-      digitalWrite(RED, HIGH);
-      digitalWrite(BLUE, LOW);
-      digitalWrite(GREEN, LOW);
+      *port_a &= 0b11111110; // PORT A0 - DIGITAL 22 - LOW
+      *port_a &= 0b11111011; // PORT A2 - DIGITAL 24 - LOW
+      *port_a |= 0b00010000; // PORT A4 - Digital 26 - HIGH
       display_error();
       turn_off_fan();
       break;
   }
+
   liquid_level = adc_read(0);
   //Serial.println(liquid_level);
   delay(100);
@@ -172,7 +169,7 @@ void loop() {
 
 void print_time(){
   dt = clock.getDateTime();
-  Serial.print("Fan started: ");
+  Serial.print("Fan toggled: ");
   Serial.print(dt.year);   Serial.print("-");
   Serial.print(dt.month);  Serial.print("-");
   Serial.print(dt.day);    Serial.print(" ");
