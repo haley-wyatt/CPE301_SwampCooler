@@ -10,9 +10,15 @@
 #include <LiquidCrystal.h> // LCD Display
 #include <Wire.h> //External clock
 #include <DS3231.h> // External clock
+#include <Stepper.h> //stepper motor
 /************************************************************/
 
 /*************Macro defines and global variables*************/
+/* Stepper Motor */
+const int stepsPerRevolution = 2048;
+const int rolePerMinute = 15; 
+Stepper myStepper(stepsPerRevolution, 8, 10, 9, 11);
+
 /* External Clock */
 DS3231 clock;
 RTCDateTime dt;
@@ -113,6 +119,8 @@ void setup() {
   // set-up external clock
   clock.begin();
   clock.setDateTime(__DATE__, __TIME__);
+  // set-up stepper motor
+  myStepper.setSpeed(rolePerMinute);
   //set up GPIO
   *ddr_h |= 0b00001000; // PIN H3 - Digital 6 - set as OUTPUT
   *ddr_e |= 0b00001000; // PIN E3 - Digital 5 - set as OUTPUT
@@ -157,10 +165,8 @@ void loop() {
       turn_off_fan();
       break;
   }
-
   liquid_level = adc_read(0);
-  delay(100);
-  
+
   if( (liquid_level < liquid_min) || (liquid_level > liquid_max) ){
     state = 'e';
   }
@@ -273,6 +279,7 @@ ISR(TIMER1_OVF_vect){
     state = 'i';
   }
 }
+
 ISR(TIMER3_OVF_vect){
   // Stop the Timer
   *myTCCR3B &= 0b11111000;
